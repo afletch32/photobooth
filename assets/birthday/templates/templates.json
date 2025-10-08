@@ -1,0 +1,10 @@
+[
+    {
+        "src": "birthday.png",
+        "layout": "double_column"
+    },
+    {
+        "src": "birthday_banner.png",
+        "layout": "double_column"
+    }
+]
