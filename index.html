@@ -955,7 +955,9 @@ async function sendTestEmail(){
     await emailjs.send(cfg.service, cfg.template, params);
     alert('Test email sent');
   } catch(e) {
-    alert('Test failed: '+ e.message);
+    const reason = describeEmailError(e);
+    console.error('Test email failed', e);
+    alert('Test failed: ' + reason);
   }
 }
 
@@ -2222,6 +2224,20 @@ function startHideTimerIfIdle() {
   }
 }
 
+function describeEmailError(err) {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  if (typeof err.text === 'string' && err.text.trim()) return err.text;
+  if (typeof err.message === 'string' && err.message.trim()) return err.message;
+  if (typeof err.statusText === 'string' && err.statusText.trim()) return err.statusText;
+  if (typeof err.status !== 'undefined') return `Status ${err.status}`;
+  try {
+    const raw = JSON.stringify(err);
+    if (raw && raw !== '{}') return raw;
+  } catch (_) {}
+  return String(err);
+}
+
 function resetSendButton(sendBtn) {
   if (!sendBtn) return;
   const original = sendBtn.dataset.originalText || 'Send';
@@ -2279,11 +2295,13 @@ function sendEmail(event) {
        }
        hidePreviewTimer = setTimeout(hideFinal, 3000);
     }, function(error) {
+       const reason = describeEmailError(error);
        console.log('FAILED...', error);
        if (sendBtn) {
-         sendBtn.textContent = 'Failed!';
+         sendBtn.textContent = 'Failed';
          setTimeout(() => resetSendButton(sendBtn), 2000);
        }
+       showToast(`Send failed: ${reason}`);
     });
 
   recordAnalytics('email', email);

@@ -13,3 +13,6 @@
 - `npx -y htmlhint index.html`
   - Status: ✅ Passed (no issues found)
   - Notes: Verified HTML structure still passes after updating the `/api/diag` R2 smoke test.
+- `npx -y htmlhint index.html`
+  - Status: ✅ Passed (no issues found)
+  - Notes: Confirmed the markup remains valid after surfacing detailed EmailJS error messages.
