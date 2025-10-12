@@ -393,7 +393,10 @@
       <img id="finalStrip" />
       <div id="finalPreviewActions">
         <div id="qrCodeContainer" class="hidden">
-          <h2 style="display:flex; align-items:center; gap:10px;">Scan to Download <span id="shareStatus" style="display:none; font-size:0.8em; padding:4px 8px; border-radius:999px; background: var(--accent); color:#000;">Preparing link…</span></h2>
+          <h2 style="display:flex; align-items:center; gap:10px;">
+            <span id="shareHeadingLabel">Scan to Download</span>
+            <span id="shareStatus" style="display:none; font-size:0.8em; padding:4px 8px; border-radius:999px; background: var(--accent); color:#000;">Preparing link…</span>
+          </h2>
           <canvas id="qrCode"></canvas>
           <div id="qrHint" style="display:none; font-size:0.9em; color:#ccc; margin-top:6px;"></div>
           <div id="shareLinkRow" style="margin-top:8px; display:none; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -614,6 +617,7 @@ const DOM = {
   qrCodeContainer: document.getElementById('qrCodeContainer'),
   qrCode: document.getElementById('qrCode'),
   qrHint: document.getElementById('qrHint'),
+  shareHeadingLabel: document.getElementById('shareHeadingLabel'),
   shareStatus: document.getElementById('shareStatus'),
   shareLinkRow: document.getElementById('shareLinkRow'),
   shareLink: document.getElementById('shareLink'),
@@ -816,8 +820,12 @@ async function loadThemesRemote(){
 async function syncThemesRemote(){
   if (!canSyncRemote()) return;
   try {
-    await fetch('/api/themes', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(themes) });
-  } catch(_) {}
+    const resp = await fetch('/api/themes', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(themes) });
+    if (!resp.ok) throw new Error('Theme sync failed: ' + resp.status);
+  } catch(e) {
+    console.error('Failed to sync themes to remote', e);
+    throw e;
+  }
 }
 function mergeFonts(a,b){
   const out = []; const seen = new Set();
@@ -832,7 +840,13 @@ async function loadFontsRemote(){
 }
 async function syncFontsRemote(fonts){
   if (!canSyncRemote()) return;
-  try { await fetch('/api/fonts', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(fonts||[]) }); } catch(_) {}
+  try {
+    const resp = await fetch('/api/fonts', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(fonts||[]) });
+    if (!resp.ok) throw new Error('Font sync failed: ' + resp.status);
+  } catch(e) {
+    console.error('Failed to sync fonts to remote', e);
+    throw e;
+  }
 }
 
 // --- Manual sync UI ---
@@ -870,21 +884,43 @@ async function ensureRemoteSeed(){
       fetch('/api/fonts', { cache:'no-store' })
     ]);
     let needSeed = false;
-    if (tRes.ok) {
+    if (!tRes.ok) {
+      needSeed = true;
+    } else {
       const t = await tRes.text();
       if (!t || t.trim() === '' || t.trim() === '{}' ) needSeed = true;
     }
-    if (fRes.ok) {
+    if (!fRes.ok) {
+      needSeed = true;
+    } else {
       const f = await fRes.text();
       if (!f || f.trim() === '' || f.trim() === '[]') needSeed = true;
     }
     if (needSeed) {
-      await syncThemesRemote();
-      await syncFontsRemote(getStoredFonts());
-      localStorage.setItem('kvSeeded','true');
-      updateSyncStatus('Seeded to server');
+      let themeSeeded = false;
+      let fontSeeded = false;
+      try {
+        await syncThemesRemote();
+        themeSeeded = true;
+      } catch (e) {
+        console.warn('Failed to seed themes remotely', e);
+      }
+      try {
+        await syncFontsRemote(getStoredFonts());
+        fontSeeded = true;
+      } catch (e) {
+        console.warn('Failed to seed fonts remotely', e);
+      }
+      if (themeSeeded && fontSeeded) {
+        localStorage.setItem('kvSeeded','true');
+        updateSyncStatus('Seeded to server');
+      } else {
+        updateSyncStatus('Seed failed; will retry');
+      }
     }
-  } catch(_) {}
+  } catch(e) {
+    console.error('ensureRemoteSeed failed', e);
+  }
 }
 
 // --- EmailJS Configuration ---
@@ -923,7 +959,9 @@ async function sendTestEmail(){
     await emailjs.send(cfg.service, cfg.template, params);
     alert('Test email sent');
   } catch(e) {
-    alert('Test failed: '+ e.message);
+    const reason = describeEmailError(e);
+    console.error('Test email failed', e);
+    alert('Test failed: ' + reason);
   }
 }
 
@@ -1966,15 +2004,44 @@ function showFinal(url){
   img.src = url;
   const offline = offlineModeActive();
   if (offline) {
-    // Hide QR/link in offline mode; email only
-    if (qrContainer) qrContainer.classList.add('hidden');
-    if (DOM.shareLinkRow) DOM.shareLinkRow.style.display = 'none';
+    if (qrContainer) {
+      qrContainer.classList.remove('hidden');
+      qrContainer.classList.add('offline-mode');
+    }
+    if (DOM.shareHeadingLabel) DOM.shareHeadingLabel.textContent = 'Email & save options';
+    if (DOM.shareStatus) {
+      DOM.shareStatus.textContent = 'Offline mode';
+      DOM.shareStatus.style.display = 'inline-flex';
+    }
+    if (DOM.qrCode) DOM.qrCode.style.display = 'none';
+    if (DOM.qrHint) {
+      DOM.qrHint.textContent = 'Emails will queue and send automatically once you reconnect.';
+      DOM.qrHint.style.display = 'block';
+    }
+    if (DOM.shareLink) {
+      DOM.shareLink.href = url;
+      DOM.shareLink.textContent = 'Download image';
+    }
+    if (DOM.shareLinkRow) DOM.shareLinkRow.style.display = 'flex';
   } else {
     // Immediately render a QR for the local image (fallback), then upgrade to a short link
+    if (qrContainer) {
+      qrContainer.classList.remove('hidden');
+      qrContainer.classList.remove('offline-mode');
+    }
+    if (DOM.shareHeadingLabel) DOM.shareHeadingLabel.textContent = 'Scan to Download';
+    if (DOM.shareStatus) {
+      DOM.shareStatus.textContent = 'Preparing link…';
+      DOM.shareStatus.style.display = 'inline-flex';
+    }
+    if (DOM.qrCode) DOM.qrCode.style.display = '';
+    if (DOM.qrHint) {
+      DOM.qrHint.textContent = '';
+      DOM.qrHint.style.display = 'none';
+    }
     renderQrCode(qrCanvas, url);
     if (DOM.shareLink) { DOM.shareLink.href = url; DOM.shareLink.textContent = 'Download image'; }
     if (DOM.shareLinkRow) DOM.shareLinkRow.style.display = 'flex';
-    qrContainer.classList.remove('hidden');
   }
   panel.classList.add('show');
   resetIdleTimer();
@@ -2156,11 +2223,19 @@ async function downloadShareImage(){
 function hideFinal() {
   DOM.finalPreview.classList.remove('show');
   DOM.qrCodeContainer.classList.add('hidden');
+  DOM.qrCodeContainer.classList.remove('offline-mode');
+  if (DOM.qrCode) DOM.qrCode.style.display = '';
   if (DOM.shareLinkRow) DOM.shareLinkRow.style.display = 'none';
   if (DOM.shareStatus) DOM.shareStatus.style.display = 'none';
+  if (DOM.shareHeadingLabel) DOM.shareHeadingLabel.textContent = 'Scan to Download';
+  if (DOM.qrHint) {
+    DOM.qrHint.textContent = '';
+    DOM.qrHint.style.display = 'none';
+  }
   DOM.retakeBtn.style.display = 'none';
   lastCaptureFlow = null; // Clear the stored flow
   clearTimeout(hidePreviewTimer);
+  resetSendButton(DOM.sendBtn);
   resetIdleTimer();
 }
 
@@ -2189,6 +2264,27 @@ function startHideTimerIfIdle() {
   }
 }
 
+function describeEmailError(err) {
+  if (!err) return 'Unknown error';
+  if (typeof err === 'string') return err;
+  if (typeof err.text === 'string' && err.text.trim()) return err.text;
+  if (typeof err.message === 'string' && err.message.trim()) return err.message;
+  if (typeof err.statusText === 'string' && err.statusText.trim()) return err.statusText;
+  if (typeof err.status !== 'undefined') return `Status ${err.status}`;
+  try {
+    const raw = JSON.stringify(err);
+    if (raw && raw !== '{}') return raw;
+  } catch (_) {}
+  return String(err);
+}
+
+function resetSendButton(sendBtn) {
+  if (!sendBtn) return;
+  const original = sendBtn.dataset.originalText || 'Send';
+  sendBtn.textContent = original;
+  sendBtn.disabled = false;
+}
+
 function sendEmail(event) {
   event.preventDefault();
   cancelHideTimer();
@@ -2197,11 +2293,18 @@ function sendEmail(event) {
   const imgUrl = DOM.finalStrip && DOM.finalStrip.src;
   const offline = offlineModeActive();
 
+  if (sendBtn && !sendBtn.dataset.originalText) {
+    sendBtn.dataset.originalText = sendBtn.textContent || 'Send';
+  }
+
   if (offline) {
     // Queue locally for later sending
     const ok = queuePendingEmail(email, imgUrl);
     if (ok) {
-      sendBtn.textContent = 'Queued';
+      if (sendBtn) {
+        sendBtn.textContent = 'Queued';
+        setTimeout(() => resetSendButton(sendBtn), 2000);
+      }
       updatePendingUI();
       hidePreviewTimer = setTimeout(hideFinal, 1200);
     } else {
@@ -2210,8 +2313,10 @@ function sendEmail(event) {
     return;
   }
 
-  sendBtn.textContent = 'Sending...';
-  sendBtn.disabled = true;
+  if (sendBtn) {
+    sendBtn.textContent = 'Sending...';
+    sendBtn.disabled = true;
+  }
 
   const cfg = getEmailJsConfig();
   const templateParams = {
@@ -2224,11 +2329,19 @@ function sendEmail(event) {
   emailjs.send(cfg.service, cfg.template, templateParams)
     .then(function(response) {
        console.log('SUCCESS!', response.status, response.text);
-       sendBtn.textContent = 'Sent!';
+       if (sendBtn) {
+         sendBtn.textContent = 'Sent!';
+         setTimeout(() => resetSendButton(sendBtn), 4000);
+       }
        hidePreviewTimer = setTimeout(hideFinal, 3000);
     }, function(error) {
+       const reason = describeEmailError(error);
        console.log('FAILED...', error);
-       sendBtn.textContent = 'Failed!';
+       if (sendBtn) {
+         sendBtn.textContent = 'Failed';
+         setTimeout(() => resetSendButton(sendBtn), 2000);
+       }
+       showToast(`Send failed: ${reason}`);
     });
 
   recordAnalytics('email', email);
