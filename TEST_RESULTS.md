@@ -10,3 +10,6 @@
 - `npx -y htmlhint index.html`
   - Status: ✅ Passed (no issues found)
   - Notes: Reconfirmed HTML passes lint prior to launch readiness review.
+- `npx -y htmlhint index.html`
+  - Status: ✅ Passed (no issues found)
+  - Notes: Verified HTML structure still passes after updating the `/api/diag` R2 smoke test.
