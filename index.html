@@ -816,8 +816,12 @@ async function loadThemesRemote(){
 async function syncThemesRemote(){
   if (!canSyncRemote()) return;
   try {
-    await fetch('/api/themes', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(themes) });
-  } catch(_) {}
+    const resp = await fetch('/api/themes', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(themes) });
+    if (!resp.ok) throw new Error('Theme sync failed: ' + resp.status);
+  } catch(e) {
+    console.error('Failed to sync themes to remote', e);
+    throw e;
+  }
 }
 function mergeFonts(a,b){
   const out = []; const seen = new Set();
@@ -832,7 +836,13 @@ async function loadFontsRemote(){
 }
 async function syncFontsRemote(fonts){
   if (!canSyncRemote()) return;
-  try { await fetch('/api/fonts', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(fonts||[]) }); } catch(_) {}
+  try {
+    const resp = await fetch('/api/fonts', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(fonts||[]) });
+    if (!resp.ok) throw new Error('Font sync failed: ' + resp.status);
+  } catch(e) {
+    console.error('Failed to sync fonts to remote', e);
+    throw e;
+  }
 }
 
 // --- Manual sync UI ---
@@ -870,21 +880,43 @@ async function ensureRemoteSeed(){
       fetch('/api/fonts', { cache:'no-store' })
     ]);
     let needSeed = false;
-    if (tRes.ok) {
+    if (!tRes.ok) {
+      needSeed = true;
+    } else {
       const t = await tRes.text();
       if (!t || t.trim() === '' || t.trim() === '{}' ) needSeed = true;
     }
-    if (fRes.ok) {
+    if (!fRes.ok) {
+      needSeed = true;
+    } else {
       const f = await fRes.text();
       if (!f || f.trim() === '' || f.trim() === '[]') needSeed = true;
     }
     if (needSeed) {
-      await syncThemesRemote();
-      await syncFontsRemote(getStoredFonts());
-      localStorage.setItem('kvSeeded','true');
-      updateSyncStatus('Seeded to server');
+      let themeSeeded = false;
+      let fontSeeded = false;
+      try {
+        await syncThemesRemote();
+        themeSeeded = true;
+      } catch (e) {
+        console.warn('Failed to seed themes remotely', e);
+      }
+      try {
+        await syncFontsRemote(getStoredFonts());
+        fontSeeded = true;
+      } catch (e) {
+        console.warn('Failed to seed fonts remotely', e);
+      }
+      if (themeSeeded && fontSeeded) {
+        localStorage.setItem('kvSeeded','true');
+        updateSyncStatus('Seeded to server');
+      } else {
+        updateSyncStatus('Seed failed; will retry');
+      }
     }
-  } catch(_) {}
+  } catch(e) {
+    console.error('ensureRemoteSeed failed', e);
+  }
 }
 
 // --- EmailJS Configuration ---
@@ -2161,6 +2193,7 @@ function hideFinal() {
   DOM.retakeBtn.style.display = 'none';
   lastCaptureFlow = null; // Clear the stored flow
   clearTimeout(hidePreviewTimer);
+  resetSendButton(DOM.sendBtn);
   resetIdleTimer();
 }
 
@@ -2189,6 +2222,13 @@ function startHideTimerIfIdle() {
   }
 }
 
+function resetSendButton(sendBtn) {
+  if (!sendBtn) return;
+  const original = sendBtn.dataset.originalText || 'Send';
+  sendBtn.textContent = original;
+  sendBtn.disabled = false;
+}
+
 function sendEmail(event) {
   event.preventDefault();
   cancelHideTimer();
@@ -2197,11 +2237,18 @@ function sendEmail(event) {
   const imgUrl = DOM.finalStrip && DOM.finalStrip.src;
   const offline = offlineModeActive();
 
+  if (sendBtn && !sendBtn.dataset.originalText) {
+    sendBtn.dataset.originalText = sendBtn.textContent || 'Send';
+  }
+
   if (offline) {
     // Queue locally for later sending
     const ok = queuePendingEmail(email, imgUrl);
     if (ok) {
-      sendBtn.textContent = 'Queued';
+      if (sendBtn) {
+        sendBtn.textContent = 'Queued';
+        setTimeout(() => resetSendButton(sendBtn), 2000);
+      }
       updatePendingUI();
       hidePreviewTimer = setTimeout(hideFinal, 1200);
     } else {
@@ -2210,8 +2257,10 @@ function sendEmail(event) {
     return;
   }
 
-  sendBtn.textContent = 'Sending...';
-  sendBtn.disabled = true;
+  if (sendBtn) {
+    sendBtn.textContent = 'Sending...';
+    sendBtn.disabled = true;
+  }
 
   const cfg = getEmailJsConfig();
   const templateParams = {
@@ -2224,11 +2273,17 @@ function sendEmail(event) {
   emailjs.send(cfg.service, cfg.template, templateParams)
     .then(function(response) {
        console.log('SUCCESS!', response.status, response.text);
-       sendBtn.textContent = 'Sent!';
+       if (sendBtn) {
+         sendBtn.textContent = 'Sent!';
+         setTimeout(() => resetSendButton(sendBtn), 4000);
+       }
        hidePreviewTimer = setTimeout(hideFinal, 3000);
     }, function(error) {
        console.log('FAILED...', error);
-       sendBtn.textContent = 'Failed!';
+       if (sendBtn) {
+         sendBtn.textContent = 'Failed!';
+         setTimeout(() => resetSendButton(sendBtn), 2000);
+       }
     });
 
   recordAnalytics('email', email);
