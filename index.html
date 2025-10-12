@@ -393,7 +393,10 @@
       <img id="finalStrip" />
       <div id="finalPreviewActions">
         <div id="qrCodeContainer" class="hidden">
-          <h2 style="display:flex; align-items:center; gap:10px;">Scan to Download <span id="shareStatus" style="display:none; font-size:0.8em; padding:4px 8px; border-radius:999px; background: var(--accent); color:#000;">Preparing link…</span></h2>
+          <h2 style="display:flex; align-items:center; gap:10px;">
+            <span id="shareHeadingLabel">Scan to Download</span>
+            <span id="shareStatus" style="display:none; font-size:0.8em; padding:4px 8px; border-radius:999px; background: var(--accent); color:#000;">Preparing link…</span>
+          </h2>
           <canvas id="qrCode"></canvas>
           <div id="qrHint" style="display:none; font-size:0.9em; color:#ccc; margin-top:6px;"></div>
           <div id="shareLinkRow" style="margin-top:8px; display:none; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -614,6 +617,7 @@ const DOM = {
   qrCodeContainer: document.getElementById('qrCodeContainer'),
   qrCode: document.getElementById('qrCode'),
   qrHint: document.getElementById('qrHint'),
+  shareHeadingLabel: document.getElementById('shareHeadingLabel'),
   shareStatus: document.getElementById('shareStatus'),
   shareLinkRow: document.getElementById('shareLinkRow'),
   shareLink: document.getElementById('shareLink'),
@@ -2000,15 +2004,44 @@ function showFinal(url){
   img.src = url;
   const offline = offlineModeActive();
   if (offline) {
-    // Hide QR/link in offline mode; email only
-    if (qrContainer) qrContainer.classList.add('hidden');
-    if (DOM.shareLinkRow) DOM.shareLinkRow.style.display = 'none';
+    if (qrContainer) {
+      qrContainer.classList.remove('hidden');
+      qrContainer.classList.add('offline-mode');
+    }
+    if (DOM.shareHeadingLabel) DOM.shareHeadingLabel.textContent = 'Email & save options';
+    if (DOM.shareStatus) {
+      DOM.shareStatus.textContent = 'Offline mode';
+      DOM.shareStatus.style.display = 'inline-flex';
+    }
+    if (DOM.qrCode) DOM.qrCode.style.display = 'none';
+    if (DOM.qrHint) {
+      DOM.qrHint.textContent = 'Emails will queue and send automatically once you reconnect.';
+      DOM.qrHint.style.display = 'block';
+    }
+    if (DOM.shareLink) {
+      DOM.shareLink.href = url;
+      DOM.shareLink.textContent = 'Download image';
+    }
+    if (DOM.shareLinkRow) DOM.shareLinkRow.style.display = 'flex';
   } else {
     // Immediately render a QR for the local image (fallback), then upgrade to a short link
+    if (qrContainer) {
+      qrContainer.classList.remove('hidden');
+      qrContainer.classList.remove('offline-mode');
+    }
+    if (DOM.shareHeadingLabel) DOM.shareHeadingLabel.textContent = 'Scan to Download';
+    if (DOM.shareStatus) {
+      DOM.shareStatus.textContent = 'Preparing link…';
+      DOM.shareStatus.style.display = 'inline-flex';
+    }
+    if (DOM.qrCode) DOM.qrCode.style.display = '';
+    if (DOM.qrHint) {
+      DOM.qrHint.textContent = '';
+      DOM.qrHint.style.display = 'none';
+    }
     renderQrCode(qrCanvas, url);
     if (DOM.shareLink) { DOM.shareLink.href = url; DOM.shareLink.textContent = 'Download image'; }
     if (DOM.shareLinkRow) DOM.shareLinkRow.style.display = 'flex';
-    qrContainer.classList.remove('hidden');
   }
   panel.classList.add('show');
   resetIdleTimer();
@@ -2190,8 +2223,15 @@ async function downloadShareImage(){
 function hideFinal() {
   DOM.finalPreview.classList.remove('show');
   DOM.qrCodeContainer.classList.add('hidden');
+  DOM.qrCodeContainer.classList.remove('offline-mode');
+  if (DOM.qrCode) DOM.qrCode.style.display = '';
   if (DOM.shareLinkRow) DOM.shareLinkRow.style.display = 'none';
   if (DOM.shareStatus) DOM.shareStatus.style.display = 'none';
+  if (DOM.shareHeadingLabel) DOM.shareHeadingLabel.textContent = 'Scan to Download';
+  if (DOM.qrHint) {
+    DOM.qrHint.textContent = '';
+    DOM.qrHint.style.display = 'none';
+  }
   DOM.retakeBtn.style.display = 'none';
   lastCaptureFlow = null; // Clear the stored flow
   clearTimeout(hidePreviewTimer);
